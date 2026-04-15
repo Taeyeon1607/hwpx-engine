@@ -1,0 +1,58 @@
+{
+  "id": "annual_report_a4",
+  "display_name": "연간보고서 A4",
+  "description": "표지+목차+본문(장별 섹션)+참고문헌+Abstract 구조의 보고서 양식",
+  "tags": ["보고서", "A4", "다중섹션"],
+
+  "sections": [
+    {"file": "section0.xml", "role": "표지 + 판권 + 요약"},
+    {"file": "section1.xml", "role": "목차 (차례 + 표차례 + 그림차례)"},
+    {"file": "section2.xml", "role": "제1장 간지 + 본문"},
+    {"file": "section3.xml", "role": "제2장 간지 + 본문"},
+    {"file": "section4.xml", "role": "제3장 간지 + 본문"},
+    {"file": "section5.xml", "role": "참고문헌 + Abstract + 키워드"}
+  ],
+
+  "styles": {
+    "bullet_1":           {"pPr": "66", "sRef": "3", "cPr": "44", "name": "□ 1수준 (BULLET)"},
+    "bullet_2":           {"pPr": "83", "sRef": "2", "cPr": "45", "name": "○ 2수준 (BULLET)"},
+    "bullet_3":           {"pPr": "68", "sRef": "1", "cPr": "29", "name": "- 3수준 (BULLET)"},
+    "subsection":         {"pPr": "70", "sRef": "5", "cPr": "43", "name": "1) 소절 제목"},
+    "subsubsection":      {"pPr": "69", "sRef": "4", "cPr": "43", "name": "(1) 소소절 제목 — 2런 구조"},
+    "chapter_title_bar":  {"pPr": "71", "sRef": "6", "cPr": "42", "name": "장 제목바 (표 내부)"},
+    "body_plain":         {"pPr": "83", "sRef": "2", "cPr": "45", "name": "일반 본문"},
+    "empty":              {"pPr": "1",  "sRef": "0", "cPr": "0",  "name": "빈줄"},
+
+    "table_caption":      {"pPr": "41", "sRef": "30", "cPr": "50", "name": "표 캡션 (NUMBER 자동번호)"},
+    "table_header_cell":  {"pPr": "38", "sRef": "31", "cPr": "60", "borderFill": "17", "name": "표 머리 셀"},
+    "table_header_right": {"borderFill": "18", "name": "표 머리 셀 (우측, 테두리 다름)"},
+    "table_body_cell":    {"pPr": "34", "sRef": "35", "cPr": "64", "borderFill": "16", "name": "표 본문 셀"},
+    "table_body_right":   {"borderFill": "15", "name": "표 본문 셀 (우측)"},
+    "table_unit":         {"pPr": "2",  "sRef": "33", "cPr": "28", "name": "표 단위 (우측정렬)"},
+    "source_note":        {"pPr": "7",  "sRef": "32", "cPr": "62", "name": "표/그림 출처"},
+
+    "toc_chapter":        {"pPr": "74", "sRef": "41", "cPr": "52", "name": "목차 장 제목"},
+    "toc_section":        {"pPr": "73", "sRef": "42", "cPr": "47", "name": "목차 절 제목"},
+    "toc_table":          {"pPr": "75", "sRef": "40", "cPr": "47", "name": "표차례/그림차례"},
+
+    "reference":          {"pPr": "81", "sRef": "47", "cPr": "63", "name": "참고문헌 항목"},
+    "abstract":           {"pPr": "82", "sRef": "49", "cPr": "48", "name": "Abstract 본문"},
+    "keyword":            {"pPr": "39", "sRef": "48", "cPr": "65", "name": "키워드"}
+  },
+
+  "interleaf_structure": {
+    "type": "RECT_drawText",
+    "description": "간지 번호/제목/절목차가 RECT drawText 서브리스트 안에 위치. 숫자는 1개 sub-para에 2개 text node."
+  },
+
+  "table_page_width": "46109",
+  "figure_box_width": "46109",
+  "figure_box_height": "32276",
+  "figure_box_borderFill": "21",
+
+  "safety_notes": [
+    "표 캡션 styleIDRef가 NUMBER 자동번호 → 캡션 텍스트에 '[표 N-M]' 직접 입력 금지",
+    "간지 숫자가 1개 sub-para에 2개 text node 구조 — 교체 시 양쪽 모두 변경 필요",
+    "RECT drawText 안에 테이블이 있으면 바이트 패딩 필요"
+  ]
+}

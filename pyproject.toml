@@ -1,0 +1,19 @@
+[project]
+name = "hwpx-plugin"
+version = "1.2.0"
+requires-python = ">=3.10"
+dependencies = [
+    "lxml>=4.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-cov>=4.0"]
+mcp = ["mcp"]
+pdf = ["pyhwpx"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "pdf: tests requiring pyhwpx and Hangul WP installed (deselect with '-m not pdf')",
+]

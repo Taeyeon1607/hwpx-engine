@@ -1,0 +1,46 @@
+{
+  "id": "issue_paper_a4",
+  "display_name": "이슈페이퍼 A4",
+  "description": "표지+본문 전체(1섹션)로 구성된 단순 양식. 장 구분은 1x1 테이블+pageBreak.",
+  "tags": ["이슈페이퍼", "A4", "단일섹션"],
+
+  "sections": [
+    {"file": "section0.xml", "role": "표지 (RECT drawText) + 표지 내 목차 테이블"},
+    {"file": "section1.xml", "role": "본문 전체 (요약 + 장 + 참고문헌 + 부록)"}
+  ],
+
+  "styles": {
+    "bullet_1":           {"pPr": "12", "sRef": "3", "cPr": "8",  "name": "□ 1수준"},
+    "bullet_2":           {"pPr": "13", "sRef": "2", "cPr": "9",  "name": "○ 2수준"},
+    "bullet_3":           {"pPr": "14", "sRef": "1", "cPr": "10", "name": "- 3수준"},
+
+    "table_caption":      {"pPr": "20", "sRef": "7", "cPr": "15", "name": "표 캡션 (자동번호 없음 — 대괄호 수동)"},
+    "table_header_cell":  {"pPr": "21", "sRef": "8", "cPr": "16", "borderFill": "10", "name": "표 머리 셀"},
+    "table_header_right": {"borderFill": "11"},
+    "table_body_cell":    {"pPr": "22", "sRef": "9", "cPr": "17", "borderFill": "12", "name": "표 본문 셀"},
+    "table_body_right":   {"borderFill": "13"},
+    "table_unit":         {"pPr": "24", "sRef": "8", "cPr": "2",  "name": "표 단위"},
+    "source_note":        {"pPr": "7",  "sRef": "10", "cPr": "6", "name": "출처"},
+
+    "reference":          {"pPr": "30", "sRef": "12", "cPr": "20", "name": "참고문헌"}
+  },
+
+  "chapter_delimiter": {
+    "type": "1x1_table_pagebreak",
+    "description": "장 구분이 pageBreak=1 + 1x1 테이블(로마숫자 제목)로 구현됨. 데이터 테이블과 구별 필요."
+  },
+
+  "caption_auto_number": false,
+  "caption_bracket_manual": true,
+
+  "table_page_width": "45022",
+  "figure_box_width": "44788",
+  "figure_box_height": "27027",
+  "figure_box_borderFill": "6",
+
+  "safety_notes": [
+    "캡션 자동번호 없음 → 캡션에 '[표제목]' 형태로 대괄호 수동 포함 필요",
+    "장 경계 판별 시 1x1 테이블 + 제목 텍스트 패턴 확인 (데이터 테이블 오인식 방지)",
+    "표지 TOC가 RECT drawText 안 테이블에 있음 → 텍스트 교체 시 바이트 패딩 필수"
+  ]
+}
