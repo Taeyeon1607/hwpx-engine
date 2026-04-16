@@ -144,3 +144,67 @@ def unregister_template(template_id: str, backup: bool = True) -> str:
     else:
         shutil.rmtree(target)
         return ""
+
+
+def _humanize_id(template_id: str) -> str:
+    """Convert 'my_template_a4' → 'My Template A4'."""
+    return " ".join(word.capitalize() for word in template_id.split("_"))
+
+
+def repair_template_metadata(template_id: str) -> dict:
+    """Auto-fill ONLY display_name (deterministically derivable from id).
+
+    Deliberately does NOT touch summary or description — those require
+    human judgment and a placeholder would mask the 'incomplete' status
+    that the SKILL.md disambiguation rule depends on.
+
+    Returns: {
+        "filled": list[str],            # fields written this call
+        "skipped": list[str],            # fields that were already present
+        "warnings_summary_missing": list[str],  # fields that still need human input
+    }
+    Raises TemplateNotFoundError if the template is not registered.
+    Raises ValueError if metadata.json is unparseable.
+
+    Note: writes JSON with indent=2 / ensure_ascii=False. Existing files
+    using the same format (the 7 bundled GRI templates confirmed to match)
+    produce minimal diffs. If a third-party template uses a different
+    format, the rewrite will normalize it — acceptable tradeoff.
+    """
+    target = GLOBAL_REGISTERED / template_id
+    if not target.exists():
+        raise TemplateNotFoundError(f"Template '{template_id}' not registered")
+
+    meta_path = target / "metadata.json"
+    try:
+        metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise ValueError(f"metadata.json for '{template_id}' is not valid JSON: {e}") from e
+
+    filled = []
+    skipped = []
+    warnings_summary_missing = []
+
+    if not metadata.get("display_name"):
+        metadata["display_name"] = _humanize_id(template_id)
+        filled.append("display_name")
+    else:
+        skipped.append("display_name")
+
+    # summary / description: do NOT auto-fill. Report as needing human input.
+    if not metadata.get("summary"):
+        warnings_summary_missing.append("summary")
+    if not metadata.get("description"):
+        warnings_summary_missing.append("description")
+
+    if filled:
+        meta_path.write_text(
+            json.dumps(metadata, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    return {
+        "filled": filled,
+        "skipped": skipped,
+        "warnings_summary_missing": warnings_summary_missing,
+    }

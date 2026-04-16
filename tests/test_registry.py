@@ -227,3 +227,99 @@ class TestUnregisterTemplate:
 
         assert not (reg / "foo").exists()
         assert not trash.exists() or not list(trash.iterdir())
+
+
+class TestRepairTemplateMetadata:
+    def _make_template(self, reg, name, metadata):
+        import json
+        t = reg / name
+        t.mkdir(parents=True)
+        (t / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False), encoding="utf-8")
+        return t
+
+    def test_fills_missing_display_name(self, tmp_path, monkeypatch):
+        import json
+        from hwpx_engine import registry
+        reg = tmp_path / "registered"
+        monkeypatch.setattr(registry, "GLOBAL_REGISTERED", reg)
+        self._make_template(reg, "my_template", {
+            "id": "my_template", "summary": "x", "styles": {}, "sections": [],
+        })
+
+        result = registry.repair_template_metadata("my_template")
+
+        assert "display_name" in result["filled"]
+        data = json.loads((reg / "my_template" / "metadata.json").read_text(encoding="utf-8"))
+        # Converted from id: "my_template" → "My Template"
+        assert data["display_name"] == "My Template"
+
+    def test_does_not_autofill_summary(self, tmp_path, monkeypatch):
+        """summary requires human judgment — repair must NOT fabricate it."""
+        import json
+        from hwpx_engine import registry
+        reg = tmp_path / "registered"
+        monkeypatch.setattr(registry, "GLOBAL_REGISTERED", reg)
+        self._make_template(reg, "foo", {
+            "id": "foo",
+            "display_name": "Foo Template",
+            "styles": {}, "sections": [{"handler": "body"}],
+        })
+
+        result = registry.repair_template_metadata("foo")
+
+        assert "summary" not in result["filled"]
+        assert "summary" in result["warnings_summary_missing"]
+        data = json.loads((reg / "foo" / "metadata.json").read_text(encoding="utf-8"))
+        assert "summary" not in data or not data.get("summary")
+
+    def test_does_not_autofill_description(self, tmp_path, monkeypatch):
+        """description is not auto-derived — left as-is when missing."""
+        import json
+        from hwpx_engine import registry
+        reg = tmp_path / "registered"
+        monkeypatch.setattr(registry, "GLOBAL_REGISTERED", reg)
+        self._make_template(reg, "foo", {
+            "id": "foo",
+            "display_name": "Foo",
+            "summary": "Existing summary.",
+            "styles": {}, "sections": [],
+        })
+
+        result = registry.repair_template_metadata("foo")
+
+        assert "description" not in result["filled"]
+        data = json.loads((reg / "foo" / "metadata.json").read_text(encoding="utf-8"))
+        assert "description" not in data or not data.get("description")
+
+    def test_skips_filled_display_name(self, tmp_path, monkeypatch):
+        import json
+        from hwpx_engine import registry
+        reg = tmp_path / "registered"
+        monkeypatch.setattr(registry, "GLOBAL_REGISTERED", reg)
+        self._make_template(reg, "foo", {
+            "id": "foo",
+            "display_name": "Existing Name",
+            "summary": "Existing summary",
+            "styles": {}, "sections": [],
+        })
+
+        result = registry.repair_template_metadata("foo")
+
+        assert result["filled"] == []
+        assert "display_name" in result["skipped"]
+
+    def test_nonexistent_raises(self, tmp_path, monkeypatch):
+        from hwpx_engine import registry
+        monkeypatch.setattr(registry, "GLOBAL_REGISTERED", tmp_path / "registered")
+        with pytest.raises(registry.TemplateNotFoundError):
+            registry.repair_template_metadata("ghost")
+
+    def test_invalid_json_raises(self, tmp_path, monkeypatch):
+        from hwpx_engine import registry
+        reg = tmp_path / "registered"
+        monkeypatch.setattr(registry, "GLOBAL_REGISTERED", reg)
+        t = reg / "broken"
+        t.mkdir(parents=True)
+        (t / "metadata.json").write_text("{not json", encoding="utf-8")
+        with pytest.raises(ValueError):
+            registry.repair_template_metadata("broken")
