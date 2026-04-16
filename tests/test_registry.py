@@ -173,3 +173,57 @@ class TestListTemplates:
         result = registry.list_templates()
         assert result[0]["status"] == "invalid"
         assert "not dict" in result[0]["error"]
+
+
+class TestUnregisterTemplate:
+    def _make_template(self, reg, name="foo"):
+        import json
+        t = reg / name
+        t.mkdir(parents=True)
+        (t / "metadata.json").write_text(json.dumps({
+            "id": name, "styles": {}, "sections": [],
+        }), encoding="utf-8")
+        (t / "template.hwpx").write_bytes(b"PK\x03\x04stub")
+        return t
+
+    def test_nonexistent_raises(self, tmp_path, monkeypatch):
+        from hwpx_engine import registry
+        monkeypatch.setattr(registry, "GLOBAL_REGISTERED", tmp_path / "registered")
+        monkeypatch.setattr(registry, "TRASH_DIR", tmp_path / ".trash")
+        with pytest.raises(registry.TemplateNotFoundError):
+            registry.unregister_template("missing")
+
+    def test_invalid_id_raises(self, tmp_path, monkeypatch):
+        from hwpx_engine import registry
+        monkeypatch.setattr(registry, "GLOBAL_REGISTERED", tmp_path / "registered")
+        with pytest.raises(registry.InvalidTemplateIdError):
+            registry.unregister_template("BAD ID")
+
+    def test_default_backup_moves_to_trash(self, tmp_path, monkeypatch):
+        from hwpx_engine import registry
+        reg = tmp_path / "registered"
+        trash = tmp_path / ".trash"
+        monkeypatch.setattr(registry, "GLOBAL_REGISTERED", reg)
+        monkeypatch.setattr(registry, "TRASH_DIR", trash)
+        self._make_template(reg, "foo")
+
+        registry.unregister_template("foo")
+
+        assert not (reg / "foo").exists()
+        # Exactly one backup dir in trash, whose name starts with "foo_"
+        entries = list(trash.iterdir())
+        assert len(entries) == 1
+        assert entries[0].name.startswith("foo_")
+
+    def test_force_removes_permanently(self, tmp_path, monkeypatch):
+        from hwpx_engine import registry
+        reg = tmp_path / "registered"
+        trash = tmp_path / ".trash"
+        monkeypatch.setattr(registry, "GLOBAL_REGISTERED", reg)
+        monkeypatch.setattr(registry, "TRASH_DIR", trash)
+        self._make_template(reg, "foo")
+
+        registry.unregister_template("foo", backup=False)
+
+        assert not (reg / "foo").exists()
+        assert not trash.exists() or not list(trash.iterdir())

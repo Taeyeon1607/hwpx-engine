@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import time
 from pathlib import Path
 
 # ─── Exceptions ───────────────────────────────────────────────────
@@ -118,3 +120,27 @@ def list_templates() -> list[dict]:
 
         results.append(entry)
     return results
+
+
+def unregister_template(template_id: str, backup: bool = True) -> str:
+    """Remove a registered template. By default moves folder to .trash/.
+
+    Returns the new path as a string (trash path if backup=True, else '').
+    Raises TemplateNotFoundError if the template doesn't exist.
+    Raises InvalidTemplateIdError if the id is malformed.
+    """
+    validate_template_id(template_id)
+
+    target = GLOBAL_REGISTERED / template_id
+    if not target.exists():
+        raise TemplateNotFoundError(f"Template '{template_id}' not registered")
+
+    if backup:
+        TRASH_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        dest = TRASH_DIR / f"{template_id}_{stamp}"
+        shutil.move(str(target), str(dest))
+        return str(dest)
+    else:
+        shutil.rmtree(target)
+        return ""
