@@ -91,6 +91,7 @@ class TestRegisterTemplateHardening:
             build_module.register_template("foo", src)
 
     def test_force_allows_overwrite(self, tmp_dir, monkeypatch):
+        """force=True must actually replace the existing content, not just no-op."""
         import sys
         from pathlib import Path
         from hwpx_engine import registry
@@ -98,11 +99,25 @@ class TestRegisterTemplateHardening:
         reg = Path(tmp_dir) / "registered"
         monkeypatch.setattr(build_module, "GLOBAL_REGISTERED", reg)
         monkeypatch.setattr(registry, "GLOBAL_REGISTERED", reg)
-        src = self._make_src(tmp_dir, "foo")
-        build_module.register_template("foo", src)
-        # Second call with force should succeed
-        build_module.register_template("foo", src, force=True)
-        assert (reg / "foo" / "metadata.json").exists()
+
+        # First registration with marker "v1"
+        src_v1 = self._make_src(tmp_dir, "foo_v1")
+        meta_v1 = json.loads(Path(src_v1, "metadata.json").read_text(encoding="utf-8"))
+        meta_v1["version_marker"] = "v1"
+        Path(src_v1, "metadata.json").write_text(json.dumps(meta_v1), encoding="utf-8")
+        build_module.register_template("foo", src_v1)
+        assert json.loads((reg / "foo" / "metadata.json").read_text(encoding="utf-8"))["version_marker"] == "v1"
+
+        # Second registration with marker "v2" using force=True
+        src_v2 = self._make_src(tmp_dir, "foo_v2")
+        meta_v2 = json.loads(Path(src_v2, "metadata.json").read_text(encoding="utf-8"))
+        meta_v2["version_marker"] = "v2"
+        Path(src_v2, "metadata.json").write_text(json.dumps(meta_v2), encoding="utf-8")
+        build_module.register_template("foo", src_v2, force=True)
+
+        # Verify the overwritten content is v2, not v1
+        final = json.loads((reg / "foo" / "metadata.json").read_text(encoding="utf-8"))
+        assert final["version_marker"] == "v2", f"force did not actually overwrite: {final}"
 
     def test_missing_summary_still_allowed(self, tmp_dir, monkeypatch):
         """summary is optional — registration should succeed without it.
