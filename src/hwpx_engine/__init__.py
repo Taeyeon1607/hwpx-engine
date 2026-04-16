@@ -12,6 +12,16 @@ from hwpx_engine.xml_primitives import (
     next_id, reset_id, xml_escape, has_part_overrides,
     get_para_text, set_para_text,
 )
+from hwpx_engine.registry import (
+    list_templates,
+    unregister_template,
+    repair_template_metadata,
+    validate_template_id,
+    TemplateError,
+    TemplateAlreadyExistsError,
+    TemplateNotFoundError,
+    InvalidTemplateIdError,
+)
 
 
 __all__ = [
@@ -28,4 +38,9 @@ __all__ = [
     "HwpxValidator", "ValidationResult",
     "StyleMapper", "DEFAULT_STYLE_MAP",
     "fix_namespaces", "NS_DECL",
+    # Registry API
+    "list_templates", "unregister_template", "repair_template_metadata",
+    "validate_template_id",
+    "TemplateError", "TemplateAlreadyExistsError",
+    "TemplateNotFoundError", "InvalidTemplateIdError",
 ]

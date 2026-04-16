@@ -323,3 +323,23 @@ class TestRepairTemplateMetadata:
         (t / "metadata.json").write_text("{not json", encoding="utf-8")
         with pytest.raises(ValueError):
             registry.repair_template_metadata("broken")
+
+
+class TestPublicAPI:
+    def test_top_level_imports(self):
+        from hwpx_engine import (
+            list_templates,
+            register_template,
+            unregister_template,
+            repair_template_metadata,
+            TemplateAlreadyExistsError,
+            TemplateNotFoundError,
+            InvalidTemplateIdError,
+        )
+        assert callable(list_templates)
+        assert callable(register_template)
+        assert callable(unregister_template)
+        assert callable(repair_template_metadata)
+        assert issubclass(TemplateAlreadyExistsError, Exception)
+        assert issubclass(TemplateNotFoundError, Exception)
+        assert issubclass(InvalidTemplateIdError, Exception)
