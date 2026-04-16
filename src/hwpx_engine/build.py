@@ -149,19 +149,29 @@ def build(template_id: str, content: dict, output_path: str,
 GLOBAL_REGISTERED = Path.home() / '.claude' / 'hwpx-engine' / 'registered'
 
 
-def register_template(template_id: str, source_dir: str) -> Path:
+def register_template(template_id: str, source_dir: str, force: bool = False) -> Path:
     """Register a template to the global persistent path.
 
     Copies all template files to ~/.claude/hwpx-engine/registered/{template_id}/.
-    This path survives plugin updates.
 
     Args:
-        template_id: unique template identifier
+        template_id: unique template identifier (lowercase alphanumeric + underscore)
         source_dir: directory containing template.hwpx, metadata.json, etc.
+        force: if True, overwrite an existing registration. Default False.
 
-    Returns:
-        Path to the registered template directory
+    Raises:
+        InvalidTemplateIdError: template_id fails format validation
+        TemplateAlreadyExistsError: id already registered and force=False
+        FileNotFoundError: source missing required files
+        ValueError: metadata.json missing required fields
     """
+    from hwpx_engine.registry import (
+        validate_template_id,
+        TemplateAlreadyExistsError,
+    )
+
+    validate_template_id(template_id)
+
     source = Path(source_dir)
     if not (source / 'template.hwpx').exists():
         raise FileNotFoundError(f"template.hwpx not found in {source}")
@@ -172,6 +182,11 @@ def register_template(template_id: str, source_dir: str) -> Path:
     _validate_metadata(metadata, "register")
 
     target = GLOBAL_REGISTERED / template_id
+    if target.exists() and not force:
+        raise TemplateAlreadyExistsError(
+            f"Template '{template_id}' already registered at {target}. "
+            f"Pass force=True to overwrite."
+        )
 
     if target.exists():
         shutil.rmtree(target)
