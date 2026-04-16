@@ -61,9 +61,42 @@ PASS 3 (DOM): set_cell/batch_set_cell/add_row/set_paragraph_style — 셀·행·
 | "표 전체 데이터 추출" | `editor.get_table_data(table_index)` — 2D 리스트 반환 |
 | "표 내용으로 테이블 검색" | `editor.find_table(text_pattern)` — 패턴을 포함하는 표 인덱스 목록 반환 |
 
-## 등록된 양식
+## 등록된 양식 조회 및 선택
 
-`assets/registered/registry.json`에서 확인. 각 양식 디렉토리에 `usage-guide.md`가 사용법을 설명한다.
+서식을 고르기 전에 **반드시** `list_templates()`로 목록을 확인한다. ID 축약명만 보고 추측하지 말 것.
+
+```python
+from hwpx_engine import list_templates
+templates = list_templates()
+for t in templates:
+    print(t["id"], "|", t["display_name"], "|", t["summary"], "|", t["status"])
+```
+
+리턴 각 엔트리 필드:
+- `id`: 서식 식별자 (build/editor 호출 시 사용)
+- `display_name`: 사람이 읽는 이름
+- `summary`: ⭐ 1줄 목적 설명 (매칭의 핵심)
+- `description`: 상세 설명 (선택)
+- `path`: 디스크 경로 (usage-guide.md 등 읽을 때)
+- `status`: `"ok"` / `"incomplete"` / `"invalid"`
+- `missing_fields`: incomplete 시 비어있는 필드 목록
+- `error`: invalid 시 예외 메시지
+
+### 서식 선택 규칙
+
+1. `list_templates()` 호출 → 전체 목록 확보
+2. 사용자 요청과 각 엔트리의 `display_name` + `summary` 매칭
+3. **사용자의 요청 문구가 어떤 서식 하나의 ID/display_name에 명백히 1:1 매칭되지 않으면, summary 전체를 사용자에게 제시하고 선택받는다.** 유사도 판단 금지 — 확신이 없으면 무조건 사용자에게 묻는다.
+4. ID 이름만 보고 고르지 말 것
+
+### 불완전/손상 서식 처리
+
+목록에 `status != "ok"` 엔트리가 있으면:
+
+- **incomplete**: `repair_template_metadata(id)` 호출 → `filled`에 채워진 필드 사용자에게 제시
+  - `warnings_summary_missing`에 `summary`가 남아 있으면 자동으로 채우지 않는다 (repair가 일부러 비워둠). 에이전트는 사용자에게 "이 서식의 한 줄 요약을 알려주세요" 라고 묻거나, `template.hwpx`와 `builder.py`를 직접 읽고 요약을 초안으로 제시한 뒤 사용자 확인을 받는다
+  - `missing_fields`에 스타일 매핑 관련 항목이 있으면 `references/template-analysis-guide.md` 절차로 심층 분석 후 재등록
+- **invalid**: `error` 메시지 사용자에게 보고 + 재등록 또는 수동 수정 요청
 
 **양식이 없는 경우**: 사용자에게 .hwpx 양식 파일을 요청 → 양식 등록 워크플로우 진행.
 
@@ -71,7 +104,7 @@ PASS 3 (DOM): set_cell/batch_set_cell/add_row/set_paragraph_style — 셀·행·
 
 ### 1단계: usage-guide.md 읽기
 
-**반드시** `assets/registered/{id}/usage-guide.md`를 읽고 content dict 구성법을 파악한다.
+**반드시** `list_templates()`의 결과에서 해당 `id`의 `path`를 구한 뒤 `{path}/usage-guide.md`를 읽어 content dict 구성법을 파악한다.
 
 ### 2단계: 빌드 스크립트 작성
 
@@ -217,24 +250,41 @@ pytest --cov=hwpx_engine  # 커버리지
 | **PDF 변환 검증** | `references/pdf-verification-guide.md` |
 | **기존 표 편집** | `references/table-editing-guide.md` |
 | **대규모 문서 편집** | `references/document-editing-guide.md` |
-| 등록된 양식 사용법 | `assets/registered/{id}/usage-guide.md` |
+| 등록된 양식 사용법 | `list_templates()` 로 `path` 확인 후 `{path}/usage-guide.md` |
 
 ## 양식 저장 위치
 
 양식은 **글로벌 경로 한 곳**에서 관리한다:
 
+### 서식 저장 경로
+
 ```
-~/.claude/hwpx-engine/registered/{id}/   ← 유일한 영구 저장소
+~/.claude/hwpx-engine/registered/{id}/          ← 글로벌 영구 저장소 (유일한 공식 경로)
+~/.claude/hwpx-engine/.trash/{id}_{stamp}/      ← unregister 시 이동 (복구 가능)
 ```
 
-이 경로는 플러그인 업데이트에도 유지된다. 에이전트가 양식을 수정할 때도 이 경로의 파일을 직접 수정한다.
+글로벌 경로는 플러그인 업데이트에도 유지된다. 에이전트가 양식을 수정할 때도 이 경로의 파일을 직접 수정한다.
 
-프로젝트 전용 양식이 필요한 경우 `./assets/registered/{id}/`에 두면 글로벌보다 우선 사용된다.
+### 등록/수정/삭제 API
 
 ```python
-from hwpx_engine.build import register_template
+from hwpx_engine import register_template, unregister_template, repair_template_metadata
+
+# 신규 등록 (기존 ID 충돌 시 에러)
 register_template('my_template', './작업폴더/')
-# → ~/.claude/hwpx-engine/registered/my_template/ 에 복사됨
+
+# 강제 덮어쓰기 (명시적 의도 필요)
+register_template('my_template', './new_source/', force=True)
+
+# 삭제 (기본: .trash/로 백업)
+unregister_template('my_template')
+
+# 완전 삭제
+unregister_template('my_template', backup=False)
+
+# 불완전 메타 자동 보강 (display_name만 — summary/description은 사용자 판단)
+result = repair_template_metadata('my_template')
+# → {"filled": ["display_name"], "skipped": [...], "warnings_summary_missing": [...]}
 ```
 
 ## 양식 등록 워크플로우
@@ -369,7 +419,7 @@ src/hwpx_engine/
   ├── utils.py              ← 네임스페이스 수정 등 유틸
   └── elements.py           ← XML 요소 역분석 API (v1.2.0에서 구현 완료)
 
-assets/registered/{template_id}/
+~/.claude/hwpx-engine/registered/{template_id}/   (글로벌 영구 저장소)
   ├── template.hwpx         ← 원본 양식
   ├── metadata.json         ← 스타일 매핑
   ├── usage-guide.md        ← content dict 사용법
