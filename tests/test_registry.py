@@ -42,3 +42,102 @@ class TestIdValidation:
         from hwpx_engine.registry import validate_template_id, InvalidTemplateIdError
         with pytest.raises(InvalidTemplateIdError, match=r"64|length"):
             validate_template_id("a" * 65)
+
+
+class TestListTemplates:
+    def test_empty_when_no_dir(self, tmp_path, monkeypatch):
+        from hwpx_engine import registry
+        monkeypatch.setattr(registry, "GLOBAL_REGISTERED", tmp_path / "registered")
+        result = registry.list_templates()
+        assert result == []
+        assert (tmp_path / "registered").is_dir()
+
+    def test_lists_ok_template(self, tmp_path, monkeypatch):
+        import json
+        from hwpx_engine import registry
+        reg = tmp_path / "registered"
+        t = reg / "foo"
+        t.mkdir(parents=True)
+        (t / "metadata.json").write_text(json.dumps({
+            "id": "foo",
+            "display_name": "Foo Template",
+            "summary": "Short purpose line.",
+            "styles": {}, "sections": [],
+        }), encoding="utf-8")
+        monkeypatch.setattr(registry, "GLOBAL_REGISTERED", reg)
+
+        result = registry.list_templates()
+        assert len(result) == 1
+        entry = result[0]
+        assert entry["id"] == "foo"
+        assert entry["display_name"] == "Foo Template"
+        assert entry["summary"] == "Short purpose line."
+        assert entry["status"] == "ok"
+        assert "path" in entry
+
+    def test_incomplete_when_summary_missing(self, tmp_path, monkeypatch):
+        import json
+        from hwpx_engine import registry
+        reg = tmp_path / "registered"
+        t = reg / "foo"
+        t.mkdir(parents=True)
+        (t / "metadata.json").write_text(json.dumps({
+            "id": "foo",
+            "display_name": "Foo",
+            "styles": {}, "sections": [],
+        }), encoding="utf-8")
+        monkeypatch.setattr(registry, "GLOBAL_REGISTERED", reg)
+
+        result = registry.list_templates()
+        assert result[0]["status"] == "incomplete"
+        assert "summary" in result[0]["missing_fields"]
+
+    def test_invalid_when_json_broken(self, tmp_path, monkeypatch):
+        from hwpx_engine import registry
+        reg = tmp_path / "registered"
+        t = reg / "broken"
+        t.mkdir(parents=True)
+        (t / "metadata.json").write_text("{not json", encoding="utf-8")
+        monkeypatch.setattr(registry, "GLOBAL_REGISTERED", reg)
+
+        result = registry.list_templates()
+        assert result[0]["status"] == "invalid"
+        assert "error" in result[0]
+
+    def test_skips_dirs_without_metadata(self, tmp_path, monkeypatch):
+        from hwpx_engine import registry
+        reg = tmp_path / "registered"
+        (reg / "no_meta").mkdir(parents=True)
+        monkeypatch.setattr(registry, "GLOBAL_REGISTERED", reg)
+
+        result = registry.list_templates()
+        assert result == []
+
+    def test_skips_hidden_dirs(self, tmp_path, monkeypatch):
+        import json
+        from hwpx_engine import registry
+        reg = tmp_path / "registered"
+        hidden = reg / ".trash"
+        hidden.mkdir(parents=True)
+        (hidden / "metadata.json").write_text(json.dumps({"id": ".trash"}), encoding="utf-8")
+        monkeypatch.setattr(registry, "GLOBAL_REGISTERED", reg)
+
+        result = registry.list_templates()
+        assert result == []
+
+    def test_sorted_by_id(self, tmp_path, monkeypatch):
+        import json
+        from hwpx_engine import registry
+        reg = tmp_path / "registered"
+        for name in ["zebra", "alpha", "middle"]:
+            t = reg / name
+            t.mkdir(parents=True)
+            (t / "metadata.json").write_text(json.dumps({
+                "id": name, "display_name": name, "summary": "",
+                "styles": {}, "sections": [],
+            }), encoding="utf-8")
+        monkeypatch.setattr(registry, "GLOBAL_REGISTERED", reg)
+
+        result = registry.list_templates()
+        ids = [e["id"] for e in result]
+        assert ids == ["alpha", "middle", "zebra"]

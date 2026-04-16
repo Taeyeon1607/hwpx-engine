@@ -54,3 +54,49 @@ def validate_template_id(template_id: str) -> None:
             f"Template ID must be lowercase alphanumeric with underscores "
             f"(got {template_id!r}). Allowed characters: a-z 0-9 _"
         )
+
+
+import json
+
+_DISPLAY_FIELDS = ["display_name", "summary"]
+
+
+def list_templates() -> list[dict]:
+    """Scan registered/ and return all templates with status.
+
+    Each entry: {id, display_name, summary, description, path, status, [missing_fields], [error]}
+    Status values: 'ok' | 'incomplete' | 'invalid'.
+    """
+    GLOBAL_REGISTERED.mkdir(parents=True, exist_ok=True)
+    results = []
+    for sub in sorted(GLOBAL_REGISTERED.iterdir()):
+        if not sub.is_dir():
+            continue
+        if sub.name.startswith('.'):
+            continue
+        meta_path = sub / 'metadata.json'
+        if not meta_path.exists():
+            continue
+
+        entry = {"id": sub.name, "path": str(sub)}
+        try:
+            meta = json.loads(meta_path.read_text(encoding='utf-8'))
+        except Exception as e:
+            entry["status"] = "invalid"
+            entry["error"] = f"{type(e).__name__}: {e}"
+            results.append(entry)
+            continue
+
+        entry["display_name"] = meta.get("display_name", sub.name)
+        entry["summary"] = meta.get("summary", "")
+        entry["description"] = meta.get("description", "")
+
+        missing = [f for f in _DISPLAY_FIELDS if not meta.get(f)]
+        if missing:
+            entry["status"] = "incomplete"
+            entry["missing_fields"] = missing
+        else:
+            entry["status"] = "ok"
+
+        results.append(entry)
+    return results
