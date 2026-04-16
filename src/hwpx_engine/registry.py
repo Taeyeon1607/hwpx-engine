@@ -4,6 +4,7 @@ Filesystem is the single source of truth. No cache index file.
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -55,17 +56,28 @@ def validate_template_id(template_id: str) -> None:
             f"(got {template_id!r}). Allowed characters: a-z 0-9 _"
         )
 
-
-import json
-
 _DISPLAY_FIELDS = ["display_name", "summary"]
 
 
 def list_templates() -> list[dict]:
     """Scan registered/ and return all templates with status.
 
-    Each entry: {id, display_name, summary, description, path, status, [missing_fields], [error]}
-    Status values: 'ok' | 'incomplete' | 'invalid'.
+    Each entry has the shape:
+        {id, display_name, summary, description, path, status, [missing_fields], [error]}
+
+    Status values:
+        - 'ok': all required display fields (display_name, summary) present
+        - 'incomplete': one or more display fields missing. `missing_fields`
+          lists which of {display_name, summary} are absent or empty.
+        - 'invalid': metadata.json failed to parse or is not a JSON object.
+          `error` contains the exception message.
+
+    `display_name` in the returned entry always falls back to the folder name
+    when metadata lacks it; `missing_fields` still reports it as missing so
+    the caller can trigger `repair_template_metadata`.
+
+    Side effect: creates `~/.claude/hwpx-engine/registered/` on first call if
+    it does not yet exist.
     """
     GLOBAL_REGISTERED.mkdir(parents=True, exist_ok=True)
     results = []
@@ -81,9 +93,15 @@ def list_templates() -> list[dict]:
         entry = {"id": sub.name, "path": str(sub)}
         try:
             meta = json.loads(meta_path.read_text(encoding='utf-8'))
-        except Exception as e:
+        except (json.JSONDecodeError, OSError) as e:
             entry["status"] = "invalid"
             entry["error"] = f"{type(e).__name__}: {e}"
+            results.append(entry)
+            continue
+
+        if not isinstance(meta, dict):
+            entry["status"] = "invalid"
+            entry["error"] = f"metadata.json is {type(meta).__name__}, not dict"
             results.append(entry)
             continue
 

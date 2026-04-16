@@ -141,3 +141,35 @@ class TestListTemplates:
         result = registry.list_templates()
         ids = [e["id"] for e in result]
         assert ids == ["alpha", "middle", "zebra"]
+
+    def test_empty_string_display_name_treated_as_missing(self, tmp_path, monkeypatch):
+        """display_name=\"\" should be treated as missing even though the key exists."""
+        import json
+        from hwpx_engine import registry
+        reg = tmp_path / "registered"
+        t = reg / "foo"
+        t.mkdir(parents=True)
+        (t / "metadata.json").write_text(json.dumps({
+            "id": "foo",
+            "display_name": "",
+            "summary": "has summary",
+            "styles": {}, "sections": [],
+        }), encoding="utf-8")
+        monkeypatch.setattr(registry, "GLOBAL_REGISTERED", reg)
+
+        result = registry.list_templates()
+        assert result[0]["status"] == "incomplete"
+        assert "display_name" in result[0]["missing_fields"]
+
+    def test_non_dict_metadata_is_invalid(self, tmp_path, monkeypatch):
+        """metadata.json that is valid JSON but not a dict → invalid."""
+        from hwpx_engine import registry
+        reg = tmp_path / "registered"
+        t = reg / "foo"
+        t.mkdir(parents=True)
+        (t / "metadata.json").write_text('["not", "a", "dict"]', encoding="utf-8")
+        monkeypatch.setattr(registry, "GLOBAL_REGISTERED", reg)
+
+        result = registry.list_templates()
+        assert result[0]["status"] == "invalid"
+        assert "not dict" in result[0]["error"]
