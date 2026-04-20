@@ -138,3 +138,38 @@ def test_iter_sources_rejects_nonexistent(tmp_hwp_dir):
     from hwpx_engine.converter import _iter_hwp_sources
     with pytest.raises(FileNotFoundError):
         list(_iter_hwp_sources(tmp_hwp_dir / "nope.hwp"))
+
+
+def test_detect_cloud_sync(tmp_path):
+    from hwpx_engine.converter import _detect_cloud_sync
+    d = tmp_path / "Dropbox" / "a.hwp"; d.parent.mkdir(parents=True); d.write_bytes(b"")
+    o = tmp_path / "OneDrive" / "a.hwp"; o.parent.mkdir(parents=True); o.write_bytes(b"")
+    n = tmp_path / "work" / "a.hwp"; n.parent.mkdir(parents=True); n.write_bytes(b"")
+    assert _detect_cloud_sync(d) is True
+    assert _detect_cloud_sync(o) is True
+    assert _detect_cloud_sync(n) is False
+
+
+def test_temp_workspace_lazy_and_release(tmp_path):
+    from hwpx_engine.converter import _TempWorkspace
+    src1 = tmp_path / "a.hwp"; src1.write_bytes(b"X")
+    src2 = tmp_path / "sub" / "a.hwp"; src2.parent.mkdir(); src2.write_bytes(b"Y")
+
+    with _TempWorkspace() as ws:
+        # lazy: 요청 시점에 복사
+        local1 = ws.local_path(src1)
+        assert local1.exists() and local1.read_bytes() == b"X"
+        # 이름 충돌 → _1 접미사로 회피
+        local2 = ws.local_path(src2)
+        assert local2.exists() and local2.read_bytes() == b"Y"
+        assert local1 != local2
+
+        # 산출물 publish
+        out1 = local1.with_suffix(".hwpx"); out1.write_bytes(b"OUT1")
+        dest1 = src1.with_suffix(".hwpx")
+        ws.publish(out1, dest1)
+        assert dest1.read_bytes() == b"OUT1"
+
+        # release: 해당 로컬 원본 파일 정리
+        ws.release(src1)
+        assert not local1.exists()

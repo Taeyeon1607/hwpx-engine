@@ -278,6 +278,82 @@ def _iter_hwp_sources(sources: SourcesArg) -> List[Path]:
     return result
 
 
+def _detect_cloud_sync(path: Path) -> bool:
+    """경로의 어떤 부분에 'Dropbox' 또는 'OneDrive'가 포함되는지 판정."""
+    markers = ("dropbox", "onedrive")
+    parts = [p.lower() for p in Path(path).resolve().parts]
+    return any(m in parts for m in markers)
+
+
+class _TempWorkspace:
+    """소스 파일을 %TEMP%로 요청 시(lazy) 복사. 파일별 release 지원.
+
+    사용:
+        with _TempWorkspace() as ws:
+            local = ws.local_path(original)  # 요청 시 복사
+            ... 변환 ...
+            ws.publish(local_output, dest)
+            ws.release(original)             # 로컬 원본 + 남은 산출물 cleanup
+
+    release는 주로 **실패 경로 cleanup**이 목적이다. 성공 경로에서는 publish가
+    local 산출물을 대상 위치로 이미 이동시켰으므로 side 산출물은 존재하지
+    않는다 — FileNotFoundError는 try/except로 묵살해 no-op이 된다.
+    """
+
+    def __init__(self) -> None:
+        import tempfile
+        self._root = Path(tempfile.mkdtemp(prefix="hwpx_batch_"))
+        self._map: Dict[str, Path] = {}
+
+    def _copy_in(self, src: Path) -> Path:
+        import shutil
+        local = self._root / src.name
+        i = 1
+        while local.exists():
+            local = self._root / "{}_{}{}".format(src.stem, i, src.suffix)
+            i += 1
+        shutil.copy2(str(src), str(local))
+        return local
+
+    def local_path(self, original: PathLike) -> Path:
+        key = str(Path(original).resolve())
+        if key not in self._map:
+            self._map[key] = self._copy_in(Path(original))
+        return self._map[key]
+
+    def release(self, original: PathLike) -> None:
+        key = str(Path(original).resolve())
+        local = self._map.pop(key, None)
+        if local is None:
+            return
+        try:
+            local.unlink()
+        except Exception:
+            pass
+        # 변환 실패 시 남은 산출물 정리 (성공 경로에서는 이미 publish로 이동됨)
+        for ext in (".hwpx", ".pdf"):
+            side = local.with_suffix(ext)
+            if side.exists():
+                try:
+                    side.unlink()
+                except Exception:
+                    pass
+
+    def publish(self, local_output: Path, dest: Path) -> Path:
+        import shutil
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(local_output), str(dest))
+        return dest
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        import shutil
+        shutil.rmtree(str(self._root), ignore_errors=True)
+        return False
+
+
 def hwp_to_hwpx_pdf(
     sources: SourcesArg,
     hwpx: bool = True,
