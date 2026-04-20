@@ -6,6 +6,7 @@ from hwpx_engine.formatter import StyleMapper, DEFAULT_STYLE_MAP
 from hwpx_engine.editor import HwpxEditor, TextNotFoundError
 from hwpx_engine.build import build, BuildContext, register_template
 from hwpx_engine.charpr_manager import CharPrManager
+from hwpx_engine.converter import hwp_to_hwpx_pdf
 from hwpx_engine.xml_primitives import (
     make_para, make_run, make_two_run_para, add_linesegarray,
     make_table_xml, make_figure_box, make_image_pic,
@@ -29,6 +30,7 @@ __all__ = [
     "build", "BuildContext", "register_template",
     "HwpxEditor", "TextNotFoundError",
     "CharPrManager",
+    "hwp_to_hwpx_pdf",
     # XML primitives
     "make_para", "make_run", "make_two_run_para", "add_linesegarray",
     "make_table_xml", "make_figure_box", "make_image_pic",
