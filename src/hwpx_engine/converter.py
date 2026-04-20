@@ -354,6 +354,36 @@ class _TempWorkspace:
         return False
 
 
+def _default_progress(i: int, total: int, path: Path) -> None:
+    """기본 진행률 출력. tqdm이 필요하면 가이드의 callback 예시 참조."""
+    print("[{}/{}] {}".format(i, total, path.name), flush=True)
+
+
+def _compute_target(src: Path, out_dir: Optional[Path], ext: str,
+                     preserve_tree: bool, src_root: Optional[Path]) -> Path:
+    """산출물 저장 경로 계산.
+
+    - out_dir 없음: src와 같은 폴더에 확장자 교체
+    - out_dir 있음 + preserve_tree=False: out_dir/<filename>
+    - out_dir 있음 + preserve_tree=True: src_root 기준 상대경로 미러링
+      (src_root가 None이면 ValueError — iterable sources는 공통 루트 모호)
+    """
+    if out_dir is None:
+        return src.with_suffix(ext)
+    if not preserve_tree:
+        return out_dir / src.with_suffix(ext).name
+    if src_root is None:
+        raise ValueError(
+            "preserve_tree=True를 iterable sources와 함께 쓰려면 공통 루트가 필요합니다. "
+            "디렉토리 단일 인자로 호출하거나 preserve_tree=False를 사용하세요."
+        )
+    try:
+        rel = src.relative_to(src_root)
+    except ValueError:
+        rel = Path(src.name)
+    return out_dir / rel.with_suffix(ext)
+
+
 def hwp_to_hwpx_pdf(
     sources: SourcesArg,
     hwpx: bool = True,
@@ -365,7 +395,147 @@ def hwp_to_hwpx_pdf(
     copy_to_temp: Union[bool, str] = "auto",
     preserve_tree: bool = False,
 ) -> dict:
-    raise NotImplementedError
+    if not hwpx and not pdf:
+        raise ValueError("hwpx와 pdf 중 적어도 하나는 True여야 합니다.")
+    if not _is_windows():
+        raise RuntimeError(
+            "이 기능은 Windows + 한글 설치 환경에서만 동작합니다. 현재: {}".format(sys.platform)
+        )
+
+    if ensure_appid:
+        # MJ-A: 타임아웃 RuntimeError가 전파되면 배치 전체 중단 → 이미 적용돼 있을
+        # 수도 있으므로 진행은 계속하고 실패는 파일별 fail로 드러나게 한다.
+        try:
+            _ensure_hwp_appid_patch(auto_elevate=True)
+        except RuntimeError as _appid_err:
+            print(
+                "[warn] AppID 자동 패치 타임아웃/거부: {}. "
+                "변환은 계속 시도합니다. 전부 실패하면 관리자 PowerShell에서 "
+                "`hwpx-apply-appid`를 먼저 실행하세요.".format(_appid_err),
+                file=sys.stderr,
+            )
+
+    Hwp = _ensure_pyhwpx()
+    out_dir = Path(output_dir).resolve() if output_dir else None
+    if out_dir:
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    paths = _iter_hwp_sources(sources)
+    total = len(paths)
+    result: dict = {"success": [], "skipped": [], "fail": []}
+    if total == 0:
+        return result
+
+    # src_root 계산 (preserve_tree용)
+    src_root: Optional[Path] = None
+    if isinstance(sources, (str, Path)) and Path(sources).is_dir():
+        src_root = Path(sources).resolve()
+
+    # MJ-2: target 충돌 사전 검사 (output_dir 평탄화 덮어쓰기 방지)
+    if out_dir is not None:
+        targets_seen: Dict[str, Path] = {}
+        for p in paths:
+            p_res = p.resolve()
+            for ext_flag, ext in ((hwpx, ".hwpx"), (pdf, ".pdf")):
+                if not ext_flag:
+                    continue
+                t = _compute_target(p_res, out_dir, ext, preserve_tree, src_root)
+                key = str(t.resolve())
+                if key in targets_seen:
+                    raise ValueError(
+                        "출력 경로 충돌: {} 와 {} 가 동일한 산출물({})을 생성합니다. "
+                        "preserve_tree=True를 쓰거나 sources/output_dir 구조를 조정하세요."
+                        .format(p, targets_seen[key], t)
+                    )
+                targets_seen[key] = p
+
+    # copy_to_temp 결정
+    use_temp = copy_to_temp
+    if use_temp == "auto":
+        use_temp = any(_detect_cloud_sync(p) for p in paths)
+
+    def _emit(i: int, src: Path) -> None:
+        if progress is False or progress is None:
+            return
+        if callable(progress):
+            progress(i, total, src)
+            return
+        _default_progress(i, total, src)
+
+    # MN-7: 초기 안내
+    if progress is True and total > 0:
+        print("HWP 변환 시작: {}개 파일".format(total), flush=True)
+
+    hwp = Hwp(visible=False)
+    ws: Optional[_TempWorkspace] = None
+    try:
+        if use_temp:
+            ws = _TempWorkspace()
+
+        for i, src in enumerate(paths, 1):
+            src = src.resolve()
+            target_hwpx = _compute_target(src, out_dir, ".hwpx", preserve_tree, src_root) if hwpx else None
+            target_pdf = _compute_target(src, out_dir, ".pdf", preserve_tree, src_root) if pdf else None
+
+            need_hwpx = bool(target_hwpx) and not (skip_existing and target_hwpx.exists())
+            need_pdf = bool(target_pdf) and not (skip_existing and target_pdf.exists())
+            if not need_hwpx and not need_pdf:
+                # ws.local_path 호출 전이므로 release 불필요
+                result["skipped"].append(src)
+                _emit(i, src)
+                continue
+
+            _emit(i, src)
+
+            work_src = ws.local_path(src) if ws else src
+            local_hwpx = work_src.with_suffix(".hwpx") if need_hwpx else None
+            local_pdf = work_src.with_suffix(".pdf") if need_pdf else None
+
+            try:
+                hwp.open(str(work_src))
+                # Task 7 결과: save_as는 format 인자가 필수. 대문자로 명시.
+                if need_hwpx:
+                    hwp.save_as(str(local_hwpx), format="HWP")
+                if need_pdf:
+                    hwp.save_as(str(local_pdf), format="PDF")
+                try:
+                    hwp.clear(1)
+                except Exception:
+                    # clear 실패 → 인스턴스 오염 가능성 → 재생성 (C4 fallback)
+                    try: hwp.quit()
+                    except Exception: pass
+                    hwp = Hwp(visible=False)
+                # 산출물 publish
+                if ws:
+                    if need_hwpx: ws.publish(local_hwpx, target_hwpx)
+                    if need_pdf: ws.publish(local_pdf, target_pdf)
+                else:
+                    if need_hwpx and local_hwpx != target_hwpx:
+                        import shutil
+                        target_hwpx.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.move(str(local_hwpx), str(target_hwpx))
+                    if need_pdf and local_pdf != target_pdf:
+                        import shutil
+                        target_pdf.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.move(str(local_pdf), str(target_pdf))
+                result["success"].append(src)
+            except Exception as e:
+                result["fail"].append((src, repr(e)))
+                # 실패 시 인스턴스 재생성으로 다음 파일 오염 방지
+                try: hwp.quit()
+                except Exception: pass
+                hwp = Hwp(visible=False)
+            finally:
+                if ws:
+                    ws.release(src)
+    finally:
+        try: hwp.quit()
+        except Exception: pass
+        if ws is not None:
+            try: ws.__exit__(None, None, None)
+            except Exception: pass
+
+    return result
 
 
 def _cli_apply_appid() -> None:

@@ -150,6 +150,34 @@ def test_detect_cloud_sync(tmp_path):
     assert _detect_cloud_sync(n) is False
 
 
+def _make_fake_hwp(behavior="ok"):
+    """테스트용 FakeHwp 팩토리. pyhwpx 1.6.6 시그니처(Task 7)에 맞춤."""
+    instances = []
+
+    class FakeHwp:
+        def __init__(self, *a, **kw):
+            instances.append(self)
+
+        def open(self, filename, format="", arg=""):
+            if behavior == "open_fail_bad" and "bad" in str(filename):
+                raise RuntimeError("open failed")
+            return True
+
+        def save_as(self, path, format="HWP", arg="", split_page=False):
+            Path(path).write_bytes(b"FAKE-" + format.encode())
+            return True
+
+        def clear(self, option=1):
+            if behavior == "clear_fail":
+                raise RuntimeError("clear failed")
+
+        def quit(self):
+            pass
+
+    FakeHwp.instances = instances
+    return FakeHwp
+
+
 def test_temp_workspace_lazy_and_release(tmp_path):
     from hwpx_engine.converter import _TempWorkspace
     src1 = tmp_path / "a.hwp"; src1.write_bytes(b"X")
@@ -173,3 +201,90 @@ def test_temp_workspace_lazy_and_release(tmp_path):
         # release: 해당 로컬 원본 파일 정리
         ws.release(src1)
         assert not local1.exists()
+
+
+def test_batch_skip_existing(tmp_hwp_dir, monkeypatch):
+    from hwpx_engine import hwp_to_hwpx_pdf
+    import hwpx_engine.converter as cv
+    monkeypatch.setattr(cv, "_ensure_hwp_appid_patch", lambda auto_elevate=True: True)
+    monkeypatch.setattr(cv, "_ensure_pyhwpx", lambda: _make_fake_hwp("ok"))
+
+    (tmp_hwp_dir / "a.hwpx").write_bytes(b"")
+    (tmp_hwp_dir / "a.pdf").write_bytes(b"")
+
+    result = hwp_to_hwpx_pdf(tmp_hwp_dir, ensure_appid=False, progress=False, copy_to_temp=False)
+    assert len(result["skipped"]) == 1
+    assert len(result["success"]) == 1
+
+
+def test_batch_failure_isolation_open(tmp_hwp_dir, monkeypatch):
+    from hwpx_engine import hwp_to_hwpx_pdf
+    import hwpx_engine.converter as cv
+    monkeypatch.setattr(cv, "_ensure_hwp_appid_patch", lambda auto_elevate=True: True)
+    monkeypatch.setattr(cv, "_ensure_pyhwpx", lambda: _make_fake_hwp("open_fail_bad"))
+
+    bad = tmp_hwp_dir / "bad.hwp"; bad.write_bytes(b"")
+    result = hwp_to_hwpx_pdf(tmp_hwp_dir, ensure_appid=False, progress=False, copy_to_temp=False)
+    assert len(result["fail"]) == 1
+    assert len(result["success"]) == 2  # a.hwp, sub/b.hwp
+
+
+def test_batch_clear_failure_recreates_instance(tmp_hwp_dir, monkeypatch):
+    """clear 실패 시 Hwp 인스턴스 재생성 (MN-3, C4 fallback)."""
+    from hwpx_engine import hwp_to_hwpx_pdf
+    import hwpx_engine.converter as cv
+    FakeHwp = _make_fake_hwp("clear_fail")
+    monkeypatch.setattr(cv, "_ensure_hwp_appid_patch", lambda auto_elevate=True: True)
+    monkeypatch.setattr(cv, "_ensure_pyhwpx", lambda: FakeHwp)
+
+    result = hwp_to_hwpx_pdf(tmp_hwp_dir, ensure_appid=False, progress=False, copy_to_temp=False)
+    assert len(result["success"]) == 2
+    # 초기 1 + 파일1 clear 실패 후 재생성 1 + 파일2 clear 실패 후 재생성 1 = 최소 3
+    assert len(FakeHwp.instances) >= 2
+
+
+def test_batch_rejects_non_windows(monkeypatch, tmp_hwp_dir):
+    from hwpx_engine import hwp_to_hwpx_pdf
+    import hwpx_engine.converter as cv
+    monkeypatch.setattr(cv, "_is_windows", lambda: False)
+    with pytest.raises(RuntimeError):
+        hwp_to_hwpx_pdf(tmp_hwp_dir, ensure_appid=False, progress=False)
+
+
+def test_batch_rejects_both_formats_off(tmp_hwp_dir):
+    from hwpx_engine import hwp_to_hwpx_pdf
+    with pytest.raises(ValueError):
+        hwp_to_hwpx_pdf(tmp_hwp_dir, hwpx=False, pdf=False,
+                         ensure_appid=False, progress=False)
+
+
+def test_batch_rejects_target_collision(tmp_path, monkeypatch):
+    """output_dir 평탄화 충돌 사전 감지 (MJ-2)."""
+    from hwpx_engine import hwp_to_hwpx_pdf
+    import hwpx_engine.converter as cv
+    monkeypatch.setattr(cv, "_ensure_hwp_appid_patch", lambda auto_elevate=True: True)
+    monkeypatch.setattr(cv, "_ensure_pyhwpx", lambda: _make_fake_hwp("ok"))
+
+    (tmp_path / "sub1").mkdir(); (tmp_path / "sub2").mkdir()
+    (tmp_path / "sub1" / "x.hwp").write_bytes(b"")
+    (tmp_path / "sub2" / "x.hwp").write_bytes(b"")
+    out = tmp_path / "out"
+
+    with pytest.raises(ValueError) as exc:
+        hwp_to_hwpx_pdf(tmp_path, output_dir=out, preserve_tree=False,
+                         ensure_appid=False, progress=False, copy_to_temp=False)
+    assert "출력 경로 충돌" in str(exc.value)
+
+
+def test_batch_rejects_preserve_tree_without_root(tmp_path, monkeypatch):
+    """iterable + preserve_tree=True + src_root 없음 → ValueError (MN-8)."""
+    from hwpx_engine import hwp_to_hwpx_pdf
+    import hwpx_engine.converter as cv
+    monkeypatch.setattr(cv, "_ensure_hwp_appid_patch", lambda auto_elevate=True: True)
+    monkeypatch.setattr(cv, "_ensure_pyhwpx", lambda: _make_fake_hwp("ok"))
+
+    a = tmp_path / "a.hwp"; a.write_bytes(b"")
+    out = tmp_path / "out"
+    with pytest.raises(ValueError):
+        hwp_to_hwpx_pdf([a], output_dir=out, preserve_tree=True,
+                         ensure_appid=False, progress=False, copy_to_temp=False)
