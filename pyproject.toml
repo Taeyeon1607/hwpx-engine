@@ -11,6 +11,15 @@ dev = ["pytest>=7.0", "pytest-cov>=4.0"]
 mcp = ["mcp"]
 pdf = ["pyhwpx"]
 
+[project.scripts]
+hwpx-apply-appid = "hwpx_engine.converter:_cli_apply_appid"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"hwpx_engine._ps1" = ["*.ps1"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
