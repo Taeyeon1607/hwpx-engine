@@ -1,6 +1,6 @@
 ---
 name: hwpx
-description: HWPX 문서(.hwpx 파일)를 생성, 읽기, 편집, 템플릿 관리하는 스킬. '한글 문서', 'hwpx', 'HWPX', '한글파일', '.hwpx 파일 만들어줘', 'HWP 문서 생성', '보고서 작성', '공문', '기안문', '한글로 작성', '양식', '서식', '템플릿 등록' 등의 키워드가 나오면 반드시 이 스킬을 사용할 것. 한글과컴퓨터(한컴)의 HWPX 포맷(OWPML 기반, ZIP+XML 구조)을 직접 zipfile+lxml로 다루는 hwpx_engine을 사용한다.
+description: HWPX 문서(.hwpx 파일)를 생성, 읽기, 편집, 템플릿 관리하는 스킬. '한글 문서', 'hwpx', 'HWPX', '한글파일', '.hwpx 파일 만들어줘', 'HWP 문서 생성', '보고서 작성', '공문', '기안문', '한글로 작성', '양식', '서식', '템플릿 등록', 'hwp 변환', '한글 파일 변환', 'hwpx 변환', 'hwp를 pdf로', 'hwp 대량 변환', 'hwp 폴더 변환' 등의 키워드가 나오면 반드시 이 스킬을 사용할 것. 한글과컴퓨터(한컴)의 HWPX 포맷(OWPML 기반, ZIP+XML 구조)을 직접 zipfile+lxml로 다루는 hwpx_engine을 사용한다.
 ---
 
 # HWPX 문서 플러그인
@@ -60,6 +60,51 @@ PASS 3 (DOM): set_cell/batch_set_cell/add_row/set_paragraph_style — 셀·행·
 | "표 셀 값 읽기" | `editor.get_cell(table_index, row, col)` — 셀 텍스트 반환 |
 | "표 전체 데이터 추출" | `editor.get_table_data(table_index)` — 2D 리스트 반환 |
 | "표 내용으로 테이블 검색" | `editor.find_table(text_pattern)` — 패턴을 포함하는 표 인덱스 목록 반환 |
+| "이 폴더 hwp 파일들 hwpx/pdf로 변환해줘" | `from hwpx_engine import hwp_to_hwpx_pdf`; `hwp_to_hwpx_pdf('folder/')` — 상세: `references/hwp-to-hwpx-guide.md` |
+| "hwp 하나만 pdf로" | `hwp_to_hwpx_pdf('a.hwp', hwpx=False)` |
+| "hwp 변환인데 첫 실행에서 실패" | `hwpx-apply-appid` 콘솔 명령 1회 실행 (UAC 승인) 후 재시도 |
+
+## 레거시 HWP 배치 변환 워크플로우
+
+사용자가 "이 폴더 hwp 파일들을 hwpx/pdf로 변환해줘" 같이 요청하면 에이전트는 **Python REPL을 사용자에게 강요하지 않고** scripts/에 변환 스크립트를 자동 생성·실행한다.
+
+```
+1. 사용자가 지정한 폴더 경로 확인 (대화에서 명시)
+2. scripts/convert_hwp_batch.py 파일 자동 생성 ({FOLDER_PATH} 치환)
+3. 실행 → result dict 회수
+4. 성공/스킵/실패 건수 보고
+5. 실패 원인 분류:
+   - "서버 실행 실패" → AppID 문제. hwpx-apply-appid 콘솔 명령 안내
+   - 한글 이미 실행 중 → taskkill /F /IM Hwp.exe 후 재시도
+   - 비밀번호 HWP → 사전 제외 안내
+```
+
+자동 생성할 스크립트 템플릿 (에이전트는 `{FOLDER_PATH}`를 실제 사용자 폴더로 **치환**한 뒤 저장):
+
+```python
+# scripts/convert_hwp_batch.py
+from hwpx_engine import hwp_to_hwpx_pdf
+
+result = hwp_to_hwpx_pdf(
+    r"{FOLDER_PATH}",        # ← 에이전트가 사용자 지정 폴더로 치환
+    hwpx=True,
+    pdf=True,
+    skip_existing=True,
+    copy_to_temp="auto",      # Dropbox/OneDrive 자동 대응
+)
+
+print(f"성공: {len(result['success'])}")
+print(f"스킵: {len(result['skipped'])}")
+print(f"실패: {len(result['fail'])}")
+for p, err in result["fail"][:10]:
+    print(f"  - {p}: {err}")
+```
+
+첫 실행 시 DCOM AppID 패치 UAC 프롬프트가 뜰 수 있다. 스크립트 실행 전에 사용자에게 안내:
+
+> "첫 실행 시 관리자 승인 창이 뜹니다. 승인하면 이후 영구 유지됩니다. 승인 안 되면 `hwpx-apply-appid` 를 따로 관리자 PowerShell에서 실행해주세요."
+
+상세: `references/hwp-to-hwpx-guide.md`
 
 ## 등록된 양식 조회 및 선택
 
@@ -248,6 +293,7 @@ pytest --cov=hwpx_engine  # 커버리지
 |------|------|
 | **양식 분석 방법** (필독) | `references/template-analysis-guide.md` |
 | **PDF 변환 검증** | `references/pdf-verification-guide.md` |
+| **HWP→HWPX/PDF 배치 변환** | `references/hwp-to-hwpx-guide.md` |
 | **기존 표 편집** | `references/table-editing-guide.md` |
 | **대규모 문서 편집** | `references/document-editing-guide.md` |
 | 등록된 양식 사용법 | `list_templates()` 로 `path` 확인 후 `{path}/usage-guide.md` |
