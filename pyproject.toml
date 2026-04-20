@@ -1,6 +1,10 @@
 [project]
 name = "hwpx-plugin"
-version = "1.2.0"
+# Version must match plugin.json and .claude-plugin/marketplace.json.
+# pyproject version skipped 1.3.x — plugin.json/marketplace were bumped for doc-only
+# fixes without affecting Python API. v1.4.0 is the first Python-API-affecting release
+# since 1.2.0 (adds hwp_to_hwpx_pdf batch converter).
+version = "1.4.0"
 requires-python = ">=3.10"
 dependencies = [
     "lxml>=4.9",
