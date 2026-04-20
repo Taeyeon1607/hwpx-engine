@@ -276,6 +276,24 @@ def test_batch_rejects_target_collision(tmp_path, monkeypatch):
     assert "출력 경로 충돌" in str(exc.value)
 
 
+@pytest.mark.pdf
+def test_batch_real_conversion(tmp_path):
+    """실 HWP → HWPX + PDF 변환 (pyhwpx + 한글 필요)."""
+    import shutil
+    sample = Path(__file__).parent / "fixtures" / "sample.hwp"
+    if not sample.exists():
+        pytest.skip("tests/fixtures/sample.hwp missing")
+    src = tmp_path / "sample.hwp"
+    shutil.copy(sample, src)
+
+    from hwpx_engine import hwp_to_hwpx_pdf
+    result = hwp_to_hwpx_pdf(src, ensure_appid=True, progress=False, copy_to_temp=False)
+    assert len(result["success"]) == 1, result
+    assert (tmp_path / "sample.hwpx").exists()
+    assert (tmp_path / "sample.pdf").exists()
+    assert (tmp_path / "sample.pdf").stat().st_size > 1000
+
+
 def test_batch_rejects_preserve_tree_without_root(tmp_path, monkeypatch):
     """iterable + preserve_tree=True + src_root 없음 → ValueError (MN-8)."""
     from hwpx_engine import hwp_to_hwpx_pdf
