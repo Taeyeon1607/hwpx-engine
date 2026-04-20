@@ -14,6 +14,8 @@ HWPX 문서를 생성/편집한 후, 한글 프로그램의 COM 자동화를 통
 
 pyhwpx는 **Windows 전용**이다. 내부적으로 `pywin32`의 COM 자동화로 한글 프로그램을 백그라운드 실행하여 변환한다. macOS/Linux에서는 사용할 수 없으며, 대안도 현재 없다.
 
+> 원격 세션(SSH, Session 0)에서는 DCOM AppID 패치가 필요하다. `hwp_to_hwpx_pdf()`와 위 `hwpx_to_pdf()` 모두 호출 시 `_ensure_hwp_appid_patch()`가 자동 시도하고, 수동 적용은 콘솔 명령 `hwpx-apply-appid`.
+
 ```bash
 pip install pyhwpx
 ```
@@ -37,6 +39,10 @@ def hwpx_to_pdf(hwpx_path, pdf_path=None):
         pdf_path = hwpx_path.rsplit('.', 1)[0] + '.pdf'
     pdf_path = os.path.abspath(pdf_path)
 
+    # DCOM AppID 자동 패치 (원격 세션/Session 0 대응)
+    from hwpx_engine.converter import _ensure_hwp_appid_patch
+    _ensure_hwp_appid_patch(auto_elevate=True)
+
     hwp = Hwp(visible=False)
     try:
         hwp.open(hwpx_path)
@@ -52,7 +58,7 @@ def _save_with_fallback(hwp, pdf_path, max_retries=10):
     for i in range(max_retries):
         try_path = pdf_path if i == 0 else f'{base}_{i}{ext}'
         try:
-            hwp.save_as(try_path, format='pdf')
+            hwp.save_as(try_path, format="PDF")
             return try_path
         except Exception:
             continue
@@ -140,3 +146,4 @@ def safe_hwpx_to_pdf(hwpx_path, pdf_path, max_retries=3):
 | "서버에서 예외 오류가 발생했습니다" | HWP 프로세스 충돌 또는 이전 인스턴스 잔존 | `taskkill /F /IM Hwp.exe` → sleep 5초 → 재시도 |
 | PermissionError: 다른 프로세스가 사용 중 | Dropbox 동기화 또는 HWP 파일 잠금 | sleep 후 재시도, 또는 /tmp에 복사 후 작업 |
 | PDF 파일 크기 < 1KB | 변환 실패 (빈 PDF) | HWP 프로세스 완전 종료 후 재시도 |
+| pywintypes.com_error: "서버 실행이 실패했습니다" | DCOM AppID 미패치 (원격 세션 Session 0) | `hwpx-apply-appid` 콘솔 명령 한 번 실행 (UAC 승인). 상세: `hwp-to-hwpx-guide.md` |
