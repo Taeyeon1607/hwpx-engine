@@ -96,3 +96,45 @@ def test_run_ps1_sync_timeout_raises(tmp_path):
     ps1.write_text("Start-Sleep -Seconds 30", encoding="utf-8")
     with pytest.raises(RuntimeError, match="타임아웃"):
         _run_ps1_sync(ps1, elevate=False, timeout_sec=1)
+
+
+@pytest.fixture
+def tmp_hwp_dir(tmp_path):
+    """임시 디렉토리에 빈 HWP/텍스트 파일 혼재 생성."""
+    for rel in ["a.hwp", "sub/b.hwp", "c.txt"]:
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"")
+    return tmp_path
+
+
+def test_iter_sources_single_file(tmp_hwp_dir):
+    from hwpx_engine.converter import _iter_hwp_sources
+    out = list(_iter_hwp_sources(tmp_hwp_dir / "a.hwp"))
+    assert len(out) == 1 and out[0].name == "a.hwp"
+
+
+def test_iter_sources_directory_rglob(tmp_hwp_dir):
+    from hwpx_engine.converter import _iter_hwp_sources
+    out = sorted(p.name for p in _iter_hwp_sources(tmp_hwp_dir))
+    assert out == ["a.hwp", "b.hwp"]  # c.txt 제외
+
+
+def test_iter_sources_list_tuple_set(tmp_hwp_dir):
+    from hwpx_engine.converter import _iter_hwp_sources
+    paths = [tmp_hwp_dir / "a.hwp", tmp_hwp_dir / "sub" / "b.hwp"]
+    assert len(list(_iter_hwp_sources(paths))) == 2
+    assert len(list(_iter_hwp_sources(tuple(paths)))) == 2
+    assert len(list(_iter_hwp_sources({paths[0]}))) == 1
+
+
+def test_iter_sources_rejects_nested(tmp_hwp_dir):
+    from hwpx_engine.converter import _iter_hwp_sources
+    with pytest.raises(TypeError):
+        list(_iter_hwp_sources([[tmp_hwp_dir / "a.hwp"]]))
+
+
+def test_iter_sources_rejects_nonexistent(tmp_hwp_dir):
+    from hwpx_engine.converter import _iter_hwp_sources
+    with pytest.raises(FileNotFoundError):
+        list(_iter_hwp_sources(tmp_hwp_dir / "nope.hwp"))

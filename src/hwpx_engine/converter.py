@@ -239,6 +239,45 @@ def _ensure_hwp_appid_patch(auto_elevate: bool = True) -> bool:
     return _appid_already_applied()
 
 
+def _iter_hwp_sources(sources: SourcesArg) -> List[Path]:
+    """입력을 정규화해 HWP 파일 경로 리스트를 반환.
+
+    - str/Path: 디렉토리면 rglob("*.hwp"), 파일이면 그 파일
+    - iterable of str/Path: 1-level만 (중첩은 TypeError)
+    """
+    result: List[Path] = []
+
+    def _handle(item) -> None:
+        if not isinstance(item, (str, Path)):
+            raise TypeError(
+                "Nested iterables not supported. Use a flat sequence of paths."
+            )
+        p = Path(item)
+        if p.is_dir():
+            for f in sorted(p.rglob("*.hwp")):
+                if f.is_file():
+                    result.append(f)
+            return
+        if p.is_file():
+            if p.suffix.lower() != ".hwp":
+                raise ValueError("Not a .hwp file: {}".format(p))
+            result.append(p)
+            return
+        raise FileNotFoundError(str(p))
+
+    if isinstance(sources, (str, Path)):
+        _handle(sources)
+    else:
+        try:
+            items = list(sources)
+        except TypeError:
+            raise TypeError("sources must be str/Path or iterable of str/Path")
+        for it in items:
+            _handle(it)
+
+    return result
+
+
 def hwp_to_hwpx_pdf(
     sources: SourcesArg,
     hwpx: bool = True,
